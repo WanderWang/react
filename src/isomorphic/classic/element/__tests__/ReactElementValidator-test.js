@@ -22,7 +22,7 @@ describe('ReactElementValidator', function() {
   var ComponentClass;
 
   beforeEach(function() {
-    require('mock-modules').dumpCache();
+    jest.resetModuleRegistry();
 
     React = require('React');
     ReactDOM = require('ReactDOM');
@@ -287,9 +287,9 @@ describe('ReactElementValidator', function() {
     expect(function() {
       ReactTestUtils.renderIntoDocument(React.createElement(ParentComp));
     }).toThrow(
-      'Invariant Violation: Element type is invalid: expected a string (for ' +
-      'built-in components) or a class/function (for composite components) ' +
-      'but got: null. Check the render method of `ParentComp`.'
+      'Element type is invalid: expected a string (for built-in components) ' +
+      'or a class/function (for composite components) but got: null. Check ' +
+      'the render method of `ParentComp`.'
     );
     expect(console.error.calls.length).toBe(1);
     expect(console.error.argsForCall[0][0]).toBe(

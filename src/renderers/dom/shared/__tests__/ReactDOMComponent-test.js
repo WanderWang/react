@@ -12,7 +12,6 @@
 'use strict';
 
 var assign = require('Object.assign');
-var mocks = require('mocks');
 
 describe('ReactDOMComponent', function() {
   var React;
@@ -21,7 +20,7 @@ describe('ReactDOMComponent', function() {
   var ReactDOMServer;
 
   beforeEach(function() {
-    require('mock-modules').dumpCache();
+    jest.resetModuleRegistry();
     React = require('React');
     ReactDOM = require('ReactDOM');
     ReactDOMServer = require('ReactDOMServer');
@@ -238,6 +237,18 @@ describe('ReactDOMComponent', function() {
       expect(stubStyle.display).toEqual('');
     });
 
+    it('should skip child object attribute on web components', function() {
+      var container = document.createElement('div');
+
+      // Test intial render to null
+      ReactDOM.render(<my-component children={['foo']} />, container);
+      expect(container.firstChild.hasAttribute('children')).toBe(false);
+
+      // Test updates to null
+      ReactDOM.render(<my-component children={['foo']} />, container);
+      expect(container.firstChild.hasAttribute('children')).toBe(false);
+    });
+
     it('should remove attributes', function() {
       var container = document.createElement('div');
       ReactDOM.render(<img height="17" />, container);
@@ -404,7 +415,7 @@ describe('ReactDOMComponent', function() {
 
       var node = container.firstChild;
       var nodeValue = ''; // node.value always returns undefined
-      var nodeValueSetter = mocks.getMockFunction();
+      var nodeValueSetter = jest.genMockFn();
       Object.defineProperty(node, 'value', {
         get: function() {
           return nodeValue;
@@ -425,6 +436,21 @@ describe('ReactDOMComponent', function() {
       var container = document.createElement('div');
       ReactDOM.render(<button is="test" cowabunga="chevynova"/>, container);
       expect(container.firstChild.hasAttribute('cowabunga')).toBe(true);
+    });
+
+    it('should not update when switching between null/undefined', function() {
+      var container = document.createElement('div');
+      var node = ReactDOM.render(<div />, container);
+
+      var setter = jest.genMockFn();
+      node.setAttribute = setter;
+
+      ReactDOM.render(<div dir={null} />, container);
+      ReactDOM.render(<div dir={undefined} />, container);
+      ReactDOM.render(<div />, container);
+      expect(setter.mock.calls.length).toBe(0);
+      ReactDOM.render(<div dir="ltr" />, container);
+      expect(setter.mock.calls.length).toBe(1);
     });
   });
 
@@ -586,8 +612,7 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         mountComponent({children: '', dangerouslySetInnerHTML: ''});
       }).toThrow(
-        'Invariant Violation: Can only set one of `children` or ' +
-        '`props.dangerouslySetInnerHTML`.'
+        'Can only set one of `children` or `props.dangerouslySetInnerHTML`.'
       );
     });
 
@@ -605,7 +630,6 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         mountComponent({dangerouslySetInnerHTML: '<span>Hi Jim!</span>'});
       }).toThrow(
-        'Invariant Violation: ' +
         '`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. ' +
         'Please visit https://fb.me/react-invariant-dangerously-set-inner-html for more information.'
       );
@@ -615,7 +639,6 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         mountComponent({dangerouslySetInnerHTML: {foo: 'bar'} });
       }).toThrow(
-        'Invariant Violation: ' +
         '`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. ' +
         'Please visit https://fb.me/react-invariant-dangerously-set-inner-html for more information.'
       );
@@ -638,17 +661,17 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         mountComponent({style: 'display: none'});
       }).toThrow(
-        'Invariant Violation: The `style` prop expects a mapping from style ' +
-        'properties to values, not a string. For example, ' +
-        'style={{marginRight: spacing + \'em\'}} when using JSX.'
+        'The `style` prop expects a mapping from style properties to values, ' +
+        'not a string. For example, style={{marginRight: spacing + \'em\'}} ' +
+        'when using JSX.'
       );
     });
 
     it('should execute custom event plugin listening behavior', function() {
       var SimpleEventPlugin = require('SimpleEventPlugin');
 
-      SimpleEventPlugin.didPutListener = mocks.getMockFunction();
-      SimpleEventPlugin.willDeleteListener = mocks.getMockFunction();
+      SimpleEventPlugin.didPutListener = jest.genMockFn();
+      SimpleEventPlugin.willDeleteListener = jest.genMockFn();
 
       var container = document.createElement('div');
       ReactDOM.render(
@@ -666,8 +689,8 @@ describe('ReactDOMComponent', function() {
     it('should handle null and missing properly with event hooks', function() {
       var SimpleEventPlugin = require('SimpleEventPlugin');
 
-      SimpleEventPlugin.didPutListener = mocks.getMockFunction();
-      SimpleEventPlugin.willDeleteListener = mocks.getMockFunction();
+      SimpleEventPlugin.didPutListener = jest.genMockFn();
+      SimpleEventPlugin.willDeleteListener = jest.genMockFn();
       var container = document.createElement('div');
 
       ReactDOM.render(<div onClick={false} />, container);
@@ -755,8 +778,7 @@ describe('ReactDOMComponent', function() {
           container
         );
       }).toThrow(
-        'Invariant Violation: Can only set one of `children` or ' +
-        '`props.dangerouslySetInnerHTML`.'
+        'Can only set one of `children` or `props.dangerouslySetInnerHTML`.'
       );
     });
 
@@ -776,9 +798,9 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         ReactDOM.render(<div style={1}></div>, container);
       }).toThrow(
-        'Invariant Violation: The `style` prop expects a mapping from style ' +
-        'properties to values, not a string. For example, ' +
-        'style={{marginRight: spacing + \'em\'}} when using JSX.'
+        'The `style` prop expects a mapping from style properties to values, ' +
+        'not a string. For example, style={{marginRight: spacing + \'em\'}} ' +
+        'when using JSX.'
       );
     });
 
@@ -792,10 +814,9 @@ describe('ReactDOMComponent', function() {
       expect(function() {
         ReactDOM.render(<Animal/>, container);
       }).toThrow(
-        'Invariant Violation: The `style` prop expects a mapping from style ' +
-        'properties to values, not a string. For example, ' +
-        'style={{marginRight: spacing + \'em\'}} when using JSX. ' +
-        'This DOM node was rendered by `Animal`.'
+        'The `style` prop expects a mapping from style properties to values, ' +
+        'not a string. For example, style={{marginRight: spacing + \'em\'}} ' +
+        'when using JSX. This DOM node was rendered by `Animal`.'
       );
     });
 
@@ -848,8 +869,7 @@ describe('ReactDOMComponent', function() {
     it('should warn about the `onScroll` issue when unsupported (IE8)', () => {
       // Mock this here so we can mimic IE8 support. We require isEventSupported
       // before React so it's pre-mocked before React qould require it.
-      require('mock-modules')
-        .dumpCache()
+      jest.resetModuleRegistry()
         .mock('isEventSupported');
       var isEventSupported = require('isEventSupported');
       isEventSupported.mockReturnValueOnce(false);
@@ -872,7 +892,7 @@ describe('ReactDOMComponent', function() {
       expect(
         () => ReactTestUtils.renderIntoDocument(hackzor)
       ).toThrow(
-        'Invariant Violation: Invalid tag: script tag'
+        'Invalid tag: script tag'
       );
     });
 
@@ -882,7 +902,7 @@ describe('ReactDOMComponent', function() {
       expect(
         () => ReactTestUtils.renderIntoDocument(hackzor)
       ).toThrow(
-        'Invariant Violation: Invalid tag: div><img /><div'
+        'Invalid tag: div><img /><div'
       );
     });
   });

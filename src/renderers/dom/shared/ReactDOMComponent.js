@@ -16,6 +16,7 @@
 
 var AutoFocusUtils = require('AutoFocusUtils');
 var CSSPropertyOperations = require('CSSPropertyOperations');
+var DOMLazyTree = require('DOMLazyTree');
 var DOMNamespaces = require('DOMNamespaces');
 var DOMProperty = require('DOMProperty');
 var DOMPropertyOperations = require('DOMPropertyOperations');
@@ -41,8 +42,6 @@ var escapeTextContentForBrowser = require('escapeTextContentForBrowser');
 var invariant = require('invariant');
 var isEventSupported = require('isEventSupported');
 var keyOf = require('keyOf');
-var setInnerHTML = require('setInnerHTML');
-var setTextContent = require('setTextContent');
 var shallowEqual = require('shallowEqual');
 var validateDOMNesting = require('validateDOMNesting');
 var warning = require('warning');
@@ -54,7 +53,9 @@ var registrationNameModules = EventPluginRegistry.registrationNameModules;
 // For quickly matching children type, to test if can be treated as content.
 var CONTENT_TYPES = {'string': true, 'number': true};
 
+var CHILDREN = keyOf({children: null});
 var STYLE = keyOf({style: null});
+var HTML = keyOf({__html: null});
 
 var ELEMENT_NODE_TYPE = 1;
 
@@ -260,7 +261,7 @@ function assertValidProps(component, props) {
     );
     invariant(
       typeof props.dangerouslySetInnerHTML === 'object' &&
-      '__html' in props.dangerouslySetInnerHTML,
+      HTML in props.dangerouslySetInnerHTML,
       '`props.dangerouslySetInnerHTML` must be in the form `{__html: ...}`. ' +
       'Please visit https://fb.me/react-invariant-dangerously-set-inner-html ' +
       'for more information.'
@@ -570,29 +571,32 @@ ReactDOMComponent.Mixin = {
       case 'form':
       case 'video':
       case 'audio':
-        this._setupTrapBubbledEventsLocal(transaction);
+        this._wrapperState = {
+          listeners: null,
+        };
+        transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
       case 'button':
         props = ReactDOMButton.getNativeProps(this, props, nativeParent);
         break;
       case 'input':
-        this._setupTrapBubbledEventsLocal(transaction);
         ReactDOMInput.mountWrapper(this, props, nativeParent);
         props = ReactDOMInput.getNativeProps(this, props);
+        transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
       case 'option':
         ReactDOMOption.mountWrapper(this, props, nativeParent);
         props = ReactDOMOption.getNativeProps(this, props);
         break;
       case 'select':
-        this._setupTrapBubbledEventsLocal(transaction);
         ReactDOMSelect.mountWrapper(this, props, nativeParent);
         props = ReactDOMSelect.getNativeProps(this, props);
+        transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
       case 'textarea':
-        this._setupTrapBubbledEventsLocal(transaction);
         ReactDOMTextarea.mountWrapper(this, props, nativeParent);
         props = ReactDOMTextarea.getNativeProps(this, props);
+        transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
         break;
     }
 
@@ -663,9 +667,10 @@ ReactDOMComponent.Mixin = {
       DOMPropertyOperations.setAttributeForID(el, this._rootNodeID);
       // Populate node cache
       ReactMount.getID(el);
-      this._updateDOMProperties({}, props, transaction);
-      this._createInitialChildren(transaction, props, context, el);
-      mountImage = el;
+      this._updateDOMProperties(null, props, transaction);
+      var lazyTree = DOMLazyTree(el);
+      this._createInitialChildren(transaction, props, context, lazyTree);
+      mountImage = lazyTree;
     } else {
       var tagOpen = this._createOpenTagMarkupAndPutListeners(transaction, props);
       var tagContent = this._createContentMarkup(transaction, props, context);
@@ -697,19 +702,6 @@ ReactDOMComponent.Mixin = {
     }
 
     return mountImage;
-  },
-
-  /**
-   * Setup this component to trap non-bubbling events locally
-   *
-   * @private
-   * @param {ReactReconcileTransaction|ReactServerRenderingTransaction} transaction
-   */
-  _setupTrapBubbledEventsLocal: function(transaction) {
-    this._wrapperState = {
-      listeners: null,
-    };
-    transaction.getReactMountReady().enqueue(trapBubbledEventsLocal, this);
   },
 
   /**
@@ -753,7 +745,9 @@ ReactDOMComponent.Mixin = {
         }
         var markup = null;
         if (this._tag != null && isCustomComponent(this._tag, props)) {
-          markup = DOMPropertyOperations.createMarkupForCustomAttribute(propKey, propValue);
+          if (propKey !== CHILDREN) {
+            markup = DOMPropertyOperations.createMarkupForCustomAttribute(propKey, propValue);
+          }
         } else {
           markup = DOMPropertyOperations.createMarkupForProperty(propKey, propValue);
         }
@@ -824,12 +818,12 @@ ReactDOMComponent.Mixin = {
     }
   },
 
-  _createInitialChildren: function(transaction, props, context, el) {
+  _createInitialChildren: function(transaction, props, context, lazyTree) {
     // Intentional use of != to avoid catching zero/false.
     var innerHTML = props.dangerouslySetInnerHTML;
     if (innerHTML != null) {
       if (innerHTML.__html != null) {
-        setInnerHTML(el, innerHTML.__html);
+        DOMLazyTree.queueHTML(lazyTree, innerHTML.__html);
       }
     } else {
       var contentToUse =
@@ -837,7 +831,7 @@ ReactDOMComponent.Mixin = {
       var childrenToUse = contentToUse != null ? null : props.children;
       if (contentToUse != null) {
         // TODO: Validate that text is allowed as a child of this node
-        setTextContent(el, contentToUse);
+        DOMLazyTree.queueText(lazyTree, contentToUse);
       } else if (childrenToUse != null) {
         var mountImages = this.mountChildren(
           childrenToUse,
@@ -845,7 +839,7 @@ ReactDOMComponent.Mixin = {
           context
         );
         for (var i = 0; i < mountImages.length; i++) {
-          el.appendChild(mountImages[i]);
+          DOMLazyTree.queueChild(lazyTree, mountImages[i]);
         }
       }
     }
@@ -946,7 +940,8 @@ ReactDOMComponent.Mixin = {
     var styleUpdates;
     for (propKey in lastProps) {
       if (nextProps.hasOwnProperty(propKey) ||
-         !lastProps.hasOwnProperty(propKey)) {
+         !lastProps.hasOwnProperty(propKey) ||
+         lastProps[propKey] == null) {
         continue;
       }
       if (propKey === STYLE) {
@@ -973,10 +968,12 @@ ReactDOMComponent.Mixin = {
     }
     for (propKey in nextProps) {
       var nextProp = nextProps[propKey];
-      var lastProp = propKey === STYLE ?
-        this._previousStyleCopy :
-        lastProps[propKey];
-      if (!nextProps.hasOwnProperty(propKey) || nextProp === lastProp) {
+      var lastProp =
+        propKey === STYLE ? this._previousStyleCopy :
+        lastProps != null ? lastProps[propKey] : undefined;
+      if (!nextProps.hasOwnProperty(propKey) ||
+          nextProp === lastProp ||
+          nextProp == null && lastProp == null) {
         continue;
       }
       if (propKey === STYLE) {
@@ -1021,6 +1018,9 @@ ReactDOMComponent.Mixin = {
           deleteListener(this._rootNodeID, propKey);
         }
       } else if (isCustomComponent(this._tag, nextProps)) {
+        if (propKey === CHILDREN) {
+          nextProp = null;
+        }
         DOMPropertyOperations.setValueForAttribute(
           getNode(this),
           propKey,

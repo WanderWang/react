@@ -13,6 +13,7 @@
 'use strict';
 
 var DOMChildrenOperations = require('DOMChildrenOperations');
+var DOMLazyTree = require('DOMLazyTree');
 var DOMPropertyOperations = require('DOMPropertyOperations');
 var ReactComponentBrowserEnvironment =
   require('ReactComponentBrowserEnvironment');
@@ -20,7 +21,6 @@ var ReactMount = require('ReactMount');
 
 var assign = require('Object.assign');
 var escapeTextContentForBrowser = require('escapeTextContentForBrowser');
-var setTextContent = require('setTextContent');
 var validateDOMNesting = require('validateDOMNesting');
 
 function getNode(inst) {
@@ -105,8 +105,9 @@ assign(ReactDOMTextComponent.prototype, {
       DOMPropertyOperations.setAttributeForID(el, rootID);
       // Populate node cache
       ReactMount.getID(el);
-      setTextContent(el, this._stringText);
-      return el;
+      var lazyTree = DOMLazyTree(el);
+      DOMLazyTree.queueText(lazyTree, this._stringText);
+      return lazyTree;
     } else {
       var escapedText = escapeTextContentForBrowser(this._stringText);
 
